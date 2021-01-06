@@ -1,0 +1,334 @@
+####################################################################################################
+# SPDK env setup
+# v0.1 - Jiang Yutang <yutang.jiang@amperecomputing.com>, 16 Dec 2020
+# v0.2 - Jiang Yutang <yutang.jiang@amperecomputing.com>, Wed 06 Jan 2021
+####################################################################################################
+HW:
+Mt.Jade(2P, Altra SOC)
+	CPU(s): 160
+	Thread(s) per core: 1
+	Core(s) per socket: 80
+	Socket(s): 2
+16* Samsung RDIMM M393A4K40DB3-CWE 32GB 3200
+24* Micron 7300 MAX U.2(7mm) 3.2TB NVMe
+CPU frequency: 3.0GHz
+
+SW:
+OS: Ubuntu 20.04 LTS
+kernel: 5.4.x
+FW: Altra SRP-1.02
+SPDK: v20.04.x , https://github.com/spdk/spdk.git
+MLNX_OFED: MLNX_OFED_LINUX-5.1-0.6.6.0-ubuntu20.04-aarch64.iso
+
+1. install OS - ubuntu20.04(kernel 5.4)
+# http://cdimage.ubuntu.com/ubuntu/releases/20.04/release/ubuntu-20.04-live-server-arm64.iso
+......
+
+vim /etc/ssh/sshd_config
+	PermitRootLogin prohibit-password		==>>PermitRootLogin yes
+/etc/init.d/ssh restart
+systemctl restart sshd
+
+swapoff -a
+vim /etc/fstab		==>>mask the line of swap.img...
+	#/swap.img      none    swap    sw      0       0
+systemctl disable snapd.socket
+systemctl disable snapd
+systemctl stop snapd.socket
+systemctl stop snapd
+
+ufw disable
+ufw status
+##for centos7:
+##systemctl stop firewalld
+##systemctl disable firewalld
+
+systemctl status sleep.target
+systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+systemctl disable sleep.target suspend.target hibernate.target hybrid-sleep.target
+systemctl stop sleep.target suspend.target hibernate.target hybrid-sleep.target
+
+apt install -y make lsof gcc bc tar git m4 xmlto asciidoc openssl bison pesign mtools kexec-tools net-tools wget mtools pesign acpidump vim gettext autoconf automake libtool libsysfs-dev ipmitool usbutils openssh-server tree libncurses-dev flex libssl-dev pkg-config quilt dh-autoreconf build-essential swig graphviz chrpath debhelper gfortran libgfortran4 bzip2 nvme-cli python3-pip python-setuptools libaio-dev libaio1 sysstat gnuplot cpufrequtils
+apt install -y libelf-dev systemtap-sdt-dev libslang2-dev libgtk2.0-dev libperl-dev python-dev liblzma-dev libzstd-dev libcap-dev libbabeltrace-dev libbabeltrace-ctf-dev libdw-dev libunwind-dev binutils-dev libiberty-dev 
+apt install -y linux-tools-common linux-tools-generic numactl
+gcc --version
+	gcc (Ubuntu 9.3.0-10ubuntu2) 9.3.0
+##for centos7(It maybe not complete):
+##yum install -y kernel-devel vim make automake cmake lsof ncurses-devel openssl openssl-devel bc tar git m4 xmlto asciidoc hmaccalc elfutils-devel binutils-devel bison audit-libs-devel pciutils-devel redhat-rpm-config rpm-build yum-utils rpmdevtools pesign numactl-devel perl-ExtUtils-Embed mtools kexec-tools net-tools wget createrepo mtools yum-utils rpmdevtools pesign acpidump vim newt-devel gettext autoconf SDL-devel libfdt automake libtool ipmitool usbutils pciutils i2c-tools dmidecode smartmontools tcl tcsh tk gtk2 atk cairo fio autoconf libicu opensc perl-devel sysstat
+##yum install -y gcc-gfortran python-devel mlnx-nvme nvme-cli nvmetcli libaio-devel numactl numactl-devel numactl-libs numad kernel-rpm-macros python36-devel
+##yum install -y python36 python36-devel kernel-rpm-macros  CUnit python3-pycodestyle lcov ShellCheck python
+
+vim /boot/grub/grub.cfg			--add parameter: linux ... iommu.passthrough=1 default_hugepagesz=1G hugepagesz=1G hugepages=128 scsi_mod.use_blk_mq=1 
+vim /etc/default/grub			--add parameter: GRUB_CMDLINE_LINUX_DEFAULT=" cma=1024M iommu.passthrough=1 default_hugepagesz=1G hugepagesz=1G hugepages=128 scsi_mod.use_blk_mq=1 "
+reboot
+
+## for centos7:
+## upgrade toolchain:
+## yum install -y epel-release
+## yum install -y centos-release-scl
+## vim /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo   then enable the [centos-sclo-rh-testing]
+##[centos-sclo-rh-testing]
+##baseurl=http://buildlogs.centos.org/centos/7/sclo/$basearch/rh/
+##enabled=1
+## yum install -y devtoolset-8
+## scl enable devtoolset-8 bash
+## No matter what is compiled later, it need to switch to the higher version of toolchain
+
+2. install mlnx_ofed_driver
+download MLNX_OFED_LINUX-5.1-0.6.6.0-ubuntu20.04-aarch64.iso at here:
+https://www.mellanox.com/products/infiniband-drivers/linux/mlnx_ofed
+......
+mount MLNX_OFED_LINUX-5.1-0.6.6.0-ubuntu20.04-aarch64.iso /mnt/
+cd /mnt/
+./mlnxofedinstall --with-nvmf --add-kernel-support --skip-distro-check --force
+## If encounter install error, maybe run following cmds and redo install process:
+## apt remove -y ofed-scripts mlnx-ofed-kernel-utils mlnx-ofed-kernel-modules rshim-modules iser-modules isert-modules srp-modules mlnx-nvme-modules mlnx-rdma-rxe-modules rdma-core libibverbs1 ibverbs-utils ibverbs-providers libibverbs-dev libibverbs1-dbg libibumad3 libibumad-dev ibacm librdmacm1 rdmacm-utils librdmacm-dev mstflint ibdump libibmad5 libibmad-dev libopensm opensm opensm-doc libopensm-devel libibnetdisc5 infiniband-diags mft kernel-mft-modules perftest ibutils2 libibdm1 ibutils cc-mgr ar-mgr dump-pr ibsim ibsim-doc ucx sharp hcoll openmpi mpitests knem-modules srptools mlnx-ethtool mlnx-iproute2
+## systemctl status srp_daemon
+## systemctl stop srp_daemon
+## apt-get remove -y srptools
+## reboot
+/etc/init.d/openibd restart
+ibdev2netdev
+mst status
+reboot
+update-initramfs -u
+reboot
+modprobe nvme-rdma nvmet-rdma
+## check modules which should be at /lib/modules/5.4.xx/updates/...
+## modinfo nvme-rdma
+## modinfo nvmet-rdma
+
+3. other package
+pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple urwid
+pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple pyparsing
+pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple rst2html5
+pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple ninja
+
+git clone https://github.com/open-iscsi/configshell-fb.git
+cd configshell-fb
+vim ./setup.py		 => #!/usr/bin/python3
+./setup.py install
+
+git clone git://git.infradead.org/users/hch/nvmetcli.git
+cd nvmetcli/
+vim ./setup.py		 => #!/usr/bin/python3
+./setup.py build ; ./setup.py install
+
+git clone https://github.com/axboe/fio.git
+cd fio
+git reset --hard d51e4ffa596b617cdb41680b31a4a3895a5307fc
+./configure
+make -j30 && make install
+
+4. install spdk
+git clone https://github.com/spdk/spdk
+cd spdk
+git checkout -b v20.04.x origin/v20.04.x
+cd spdk
+git config --global user.email "yutang.jiang@amperecomputing.com"
+git config --global user.name "Jiang Yutang"
+git format-patch -1 97b0f7733fee749f9355d019f14b6d9316b7ce0a
+##Refer above patch to handle arm64 support: 0001-env-Check-supported-iommu-address-width-before-using.patch
+##Port this patch to current source: https://review.spdk.io/gerrit/c/spdk/spdk/+/4647
+git submodule update --init
+./scripts/pkgdep.sh
+./configure --with-rdma --with-fio=/home/root/fio --with-vhost --with-virtio --disable-debug
+make -j30 && make install -j30
+
+5. install qemu
+apt-get install -y cpu-checker bridge-utils qemu qemu-kvm qemu-system-aarch64 qemu-efi-aarch64 qemu-utils libvirt-daemon libvirt-clients virt-manager 
+apt-get install -y tightvncserver xfce4 xfce4-goodies xtightvncviewer 
+systemctl status libvirtd
+systemctl enable --now libvirtd
+
+
+6. test case
+##Optimization options
+systemctl stop syslog.socket
+systemctl stop rsyslog
+systemctl stop systemd-journald-dev-log.socket
+systemctl stop systemd-journald.socket
+systemctl stop systemd-journald-audit.socket
+systemctl stop systemd-journald
+sysctl -w vm.overcommit_memory=2
+echo "0" > /proc/sys/vm/oom-kill
+echo 3 > /proc/sys/vm/drop_caches
+swapoff -a
+vim /etc/fstab		==>>disable swap.img： #/swap.img      none    swap    sw      0       0
+cpupower frequency-set -g performance
+cpupower frequency-set -f 3.0G
+cpupower frequency-info
+for i in `seq 0 159 ` ;do cpufreq-set -c $i -g performance ;done
+echo 0 > /proc/sys/kernel/numa_balancing
+
+6.1. SPDK vhost + bdevperf test on NVMe disk:
+cd /home/xxx/spdk_source/
+##check the u.2 NVMe disk of first slot:
+lspci | grep -iE 'ssd|micron' | grep -iE 0003
+	0003:01:00.0 Non-Volatile memory controller: Micron Technology Inc Device 51a3 (rev 01)
+	...
+HUGEMEM=16384 ./scripts/setup.sh
+./app/vhost/vhost -m 2 &
+./test/bdev/bdevperf/bdevperf -r /var/tmp/spdk.sock.bdevperf -q 128 -o 4096 -w randread -t 60 -z -m 8 -g &
+./scripts/rpc.py bdev_nvme_attach_controller -b spdknvme0 -t pcie -a 0003:01:00.0
+./scripts/rpc.py vhost_create_blk_controller --cpumask 2 spdkvbc spdknvme0n1 -p
+./scripts/rpc.py -s /var/tmp/spdk.sock.bdevperf bdev_virtio_attach_controller -t user -d blk -a spdkvbc spdkperfvbc
+PYTHONPATH=$PYTHONPATH:./scripts/ test/bdev/bdevperf/bdevperf.py -s /var/tmp/spdk.sock.bdevperf -t 90 perform_tests
+##wait 60s then got result as following:
+	Running I/O for 60 seconds...
+	 Thread name: bdevperf_reactor_3
+	 Core Mask: 0x8
+	 spdkperfvbc         :  529466.02 IOPS    2068.23 MiB/s
+	 =====================================================
+	 Total               :  529466.02 IOPS    2068.23 MiB/s
+##clean test process:
+kill -9 pid_of_bdevperf
+kill -9 pid_of_vhost
+./scripts/setup.sh reset
+
+6.2. SPDK NVMe oF-RDMA test on NVMe disk:
+### Two Ampere arm64 servers are needed, one as initiator, another as target, connected using mlnx NIC with rdma support.
+### Network topology: initiator enp1s0f0(192.168.1.1) <=> (192.168.1.2)enp1s0f0 target
+### step1 - on target host ###
+# cd /home/xxx/spdk_source/
+# ifconfig enp1s0f0 192.168.1.2
+# HUGEMEM=16384 DRIVER_OVERRIDE=uio_pci_generic ./scripts/setup.sh
+# modprobe nvme-rdma
+# modprobe nvmet-rdma
+# ./app/nvmf_tgt/nvmf_tgt -m 2 &
+# ./scripts/rpc.py nvmf_create_transport -t rdma
+# ./scripts/rpc.py bdev_nvme_attach_controller -t PCIe -b targetnvme0 -a 0003:01:00.0
+# ./scripts/rpc.py nvmf_create_subsystem nqn.2020-12.io.spdk:ampere.nvme0 -s SERIALNUMBER_nvme0 -a -m 24
+# ./scripts/rpc.py nvmf_subsystem_add_ns nqn.2020-12.io.spdk:ampere.nvme0 targetnvme0n1
+# ./scripts/rpc.py nvmf_subsystem_add_listener nqn.2020-12.io.spdk:ampere.nvme0 -t rdma -f ipv4 -s 4400 -a 192.168.1.2
+### step2 - on initiator host ###
+# cd /home/xxx/spdk_source/
+# ifconfig enp1s0f0 192.168.1.1
+# HUGEMEM=16384 DRIVER_OVERRIDE=uio_pci_generic ./scripts/setup.sh
+# modprobe nvme_core
+# modprobe nvme-rdma
+# modprobe nvmet-rdma
+# vim spdk.rdma.bdev.conf  ==>>add following bdev config:
+[Nvme]
+TransportId "trtype=rdma adrfam=IPv4 traddr=192.168.1.2 trsvcid=4400 ns=1 subnqn:nqn.2020-12.io.spdk:ampere.nvme0" initiatornvme0
+# vim spdk.rdma.fio.conf  ==>>add following fio_plugin config:
+[global]
+ioengine=./examples/bdev/fio_plugin/fio_plugin
+spdk_conf=spdk.rdma.bdev.conf
+thread=1
+group_reporting=1
+direct=1
+norandommap=1
+rw=randread
+bs=4k
+iodepth=128
+time_based=1
+ramp_time=6
+runtime=60
+numjobs=1
+[job0]
+filename=initiatornvme0n1
+# fio spdk.rdma.fio.conf
+### wait 60s then got result as following:
+job0: (g=0): rw=randread, bs=(R) 4096B-4096B, (W) 4096B-4096B, (T) 4096B-4096B, ioengine=spdk_bdev, iodepth=128
+......
+  read: IOPS=530k, BW=2072MiB/s (2173MB/s)(121GiB/60001msec)
+......
+
+
+6.3. SPDK vhost[null, malloc, NVMe] + VM on numa socket0:
+### install virtualization packages
+apt-get install -y cpu-checker bridge-utils qemu qemu-kvm qemu-system-aarch64 qemu-efi-aarch64 qemu-utils libvirt-daemon libvirt-clients virt-manager 
+apt-get install -y tightvncserver xfce4 xfce4-goodies xtightvncviewer 
+systemctl status libvirtd
+systemctl enable --now libvirtd
+### create vm img: [vm.ubuntu20.04.qcow2, ref: https://futurewei-cloud.github.io/ARM-Datacenter/qemu/how-to-launch-aarch64-vm ]
+### bootup vm , open /boot/grub/grub.cfg , find "menuentry" node , append " cma=1024M iommu.passthrough=1 default_hugepagesz=1G hugepagesz=1G hugepages=8 scsi_mod.use_blk_mq=1 " to the line tail of "linux   /boot/vmlinuz-5.4.0-.... ro"
+cd /home/xxx/spdk_source/
+kill -9 $(ps -elf | grep 'vhost/vhost' | awk '{print $4}' | awk NR==1)
+./scripts/setup.sh reset
+sleep 2
+HUGEMEM=131072 numactl -N 0 -m 0 ./scripts/setup.sh
+sleep 2
+numactl -N 0 -m 0 ./app/vhost/vhost -m 8 -i 0 -S /var/tmp -r /var/tmp/spdk.sock.vhost -s 4096 &
+sleep 2
+numactl -N 0 -m 0 ./scripts/rpc.py -s /var/tmp/spdk.sock.vhost bdev_null_create null0 10240 512
+sleep 2
+numactl -N 0 -m 0 ./scripts/rpc.py -s /var/tmp/spdk.sock.vhost bdev_malloc_create 2048 512 -b malloc0
+sleep 2
+numactl -N 0 -m 0 ./scripts/rpc.py -s /var/tmp/spdk.sock.vhost bdev_nvme_attach_controller -b nvme0 -t pcie -a 0003:01:00.0
+sleep 2
+numactl -N 0 -m 0 ./scripts/rpc.py -s /var/tmp/spdk.sock.vhost vhost_create_blk_controller --cpumask 8 vbc0 null0 -p
+sleep 2
+numactl -N 0 -m 0 ./scripts/rpc.py -s /var/tmp/spdk.sock.vhost vhost_create_blk_controller --cpumask 8 vbc1 malloc0 -p
+sleep 2
+numactl -N 0 -m 0 ./scripts/rpc.py -s /var/tmp/spdk.sock.vhost vhost_create_blk_controller --cpumask 8 vbc2 nvme0n1 -p
+sleep 2
+### bootup VM:
+numactl --physcpubind=40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79 --localalloc \
+        qemu-system-aarch64 -nographic \
+        -machine virt-4.2,accel=kvm,usb=off,dump-guest-core=off,gic-version=3 \
+        -cpu host -smp 32,sockets=32,cores=1,threads=1 \
+        -m 32G -overcommit mem-lock=off \
+        -object memory-backend-file,id=mem,size=32G,mem-path=/dev/hugepages,share=on,prealloc=yes,host-nodes=0,policy=bind -numa node,nodeid=0,cpus=0-31,memdev=mem \
+        -drive file=vm.flash0.img,format=raw,if=pflash \
+        -drive file=vm.flash1.img,format=raw,if=pflash \
+        -drive file=vm.ubuntu20.04.qcow2,if=none,id=blk-os,cache=writeback -device virtio-blk,drive=blk-os,bootindex=0 \
+        -net user,hostfwd=tcp::10021-:22 -net nic \
+        -chardev socket,id=vhostblkid0,path=/var/tmp/vbc0 -device vhost-user-blk-pci,chardev=vhostblkid0,packed=on,num-queues=4 \
+        -chardev socket,id=vhostblkid1,path=/var/tmp/vbc1 -device vhost-user-blk-pci,chardev=vhostblkid1,packed=on,num-queues=4 \
+        -chardev socket,id=vhostblkid2,path=/var/tmp/vbc2 -device vhost-user-blk-pci,chardev=vhostblkid2,packed=on,num-queues=4
+### login VM
+# lsblk | grep -E 'vd|NAME'
+NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+vda    252:0    0   25G  0 disk
+├─vda1 252:1    0  512M  0 part /boot/efi
+└─vda2 252:2    0 24.5G  0 part /
+vdb    252:16   0   10G  0 disk
+vdc    252:32   0    2G  0 disk
+vdd    252:48   0  2.9T  0 disk
+# dd if=/dev/vdb of=/dev/null bs=1M count=1000
+1000+0 records in
+1000+0 records out
+1048576000 bytes (1.0 GB, 1000 MiB) copied, 0.375861 s, 2.8 GB/s
+# dd if=/dev/vdc of=/dev/null bs=1M count=1000
+1000+0 records in
+1000+0 records out
+1048576000 bytes (1.0 GB, 1000 MiB) copied, 0.375265 s, 2.8 GB/s
+# dd if=/dev/vdd of=/dev/null bs=1M count=1000
+1000+0 records in
+1000+0 records out
+1048576000 bytes (1.0 GB, 1000 MiB) copied, 0.483904 s, 2.2 GB/s
+### create a fio test shell file:
+vim fiotestvdb.sh		==>>
+	#!/bin/sh
+	gs_fio_testdisk="vdb"
+	gs_fio_cpus_allowed="1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31"
+	gs_fio_bs=4k
+	gs_fio_iodepth=32
+	gs_fio_numjobs=16
+	gs_fio_ramp_time=30
+	gs_fio_runtime=300
+	gs_fio_name_prefix="==========vhost-fio-test"
+	echo 2 > /sys/block/$gs_fio_testdisk/queue/rq_affinity
+	echo "================================================== fio test "$gs_fio_testdisk" bs="$gs_fio_bs"..."
+	fio --ioengine=libaio --gtod_reduce=1 --group_reporting --thread --norandommap --direct=1 --bs=$gs_fio_bs --iodepth=$gs_fio_iodepth --numjobs=$gs_fio_numjobs --time_based --ramp_time=$gs_fio_ramp_time --runtime=$gs_fio_runtime --filename="/dev/"$gs_fio_testdisk --cpus_allowed=$gs_fio_cpus_allowed --cpus_allowed_policy=split --name=$gs_fio_name_prefix"-"$gs_fio_testdisk"-bs"$gs_fio_bs"-iodepth"$gs_fio_iodepth --rw=write
+	fio --ioengine=libaio --gtod_reduce=1 --group_reporting --thread --norandommap --direct=1 --bs=$gs_fio_bs --iodepth=$gs_fio_iodepth --numjobs=$gs_fio_numjobs --time_based --ramp_time=$gs_fio_ramp_time --runtime=$gs_fio_runtime --filename="/dev/"$gs_fio_testdisk --cpus_allowed=$gs_fio_cpus_allowed --cpus_allowed_policy=split --name=$gs_fio_name_prefix"-"$gs_fio_testdisk"-bs"$gs_fio_bs"-iodepth"$gs_fio_iodepth --rw=read
+	fio --ioengine=libaio --gtod_reduce=1 --group_reporting --thread --norandommap --direct=1 --bs=$gs_fio_bs --iodepth=$gs_fio_iodepth --numjobs=$gs_fio_numjobs --time_based --ramp_time=$gs_fio_ramp_time --runtime=$gs_fio_runtime --filename="/dev/"$gs_fio_testdisk --cpus_allowed=$gs_fio_cpus_allowed --cpus_allowed_policy=split --name=$gs_fio_name_prefix"-"$gs_fio_testdisk"-bs"$gs_fio_bs"-iodepth"$gs_fio_iodepth --rw=randwrite
+	fio --ioengine=libaio --gtod_reduce=1 --group_reporting --thread --norandommap --direct=1 --bs=$gs_fio_bs --iodepth=$gs_fio_iodepth --numjobs=$gs_fio_numjobs --time_based --ramp_time=$gs_fio_ramp_time --runtime=$gs_fio_runtime --filename="/dev/"$gs_fio_testdisk --cpus_allowed=$gs_fio_cpus_allowed --cpus_allowed_policy=split --name=$gs_fio_name_prefix"-"$gs_fio_testdisk"-bs"$gs_fio_bs"-iodepth"$gs_fio_iodepth --rw=randread
+	echo "================================================== fio test "$gs_fio_testdisk" bs="$gs_fio_bs"...finish"
+	gs_fio_bs=1M
+	echo "================================================== fio test "$gs_fio_testdisk" bs="$gs_fio_bs"..."
+	fio --ioengine=libaio --gtod_reduce=1 --group_reporting --thread --norandommap --direct=1 --bs=$gs_fio_bs --iodepth=$gs_fio_iodepth --numjobs=$gs_fio_numjobs --time_based --ramp_time=$gs_fio_ramp_time --runtime=$gs_fio_runtime --filename="/dev/"$gs_fio_testdisk --cpus_allowed=$gs_fio_cpus_allowed --cpus_allowed_policy=split --name=$gs_fio_name_prefix"-"$gs_fio_testdisk"-bs"$gs_fio_bs"-iodepth"$gs_fio_iodepth --rw=write
+	fio --ioengine=libaio --gtod_reduce=1 --group_reporting --thread --norandommap --direct=1 --bs=$gs_fio_bs --iodepth=$gs_fio_iodepth --numjobs=$gs_fio_numjobs --time_based --ramp_time=$gs_fio_ramp_time --runtime=$gs_fio_runtime --filename="/dev/"$gs_fio_testdisk --cpus_allowed=$gs_fio_cpus_allowed --cpus_allowed_policy=split --name=$gs_fio_name_prefix"-"$gs_fio_testdisk"-bs"$gs_fio_bs"-iodepth"$gs_fio_iodepth --rw=read
+	fio --ioengine=libaio --gtod_reduce=1 --group_reporting --thread --norandommap --direct=1 --bs=$gs_fio_bs --iodepth=$gs_fio_iodepth --numjobs=$gs_fio_numjobs --time_based --ramp_time=$gs_fio_ramp_time --runtime=$gs_fio_runtime --filename="/dev/"$gs_fio_testdisk --cpus_allowed=$gs_fio_cpus_allowed --cpus_allowed_policy=split --name=$gs_fio_name_prefix"-"$gs_fio_testdisk"-bs"$gs_fio_bs"-iodepth"$gs_fio_iodepth --rw=randwrite
+	fio --ioengine=libaio --gtod_reduce=1 --group_reporting --thread --norandommap --direct=1 --bs=$gs_fio_bs --iodepth=$gs_fio_iodepth --numjobs=$gs_fio_numjobs --time_based --ramp_time=$gs_fio_ramp_time --runtime=$gs_fio_runtime --filename="/dev/"$gs_fio_testdisk --cpus_allowed=$gs_fio_cpus_allowed --cpus_allowed_policy=split --name=$gs_fio_name_prefix"-"$gs_fio_testdisk"-bs"$gs_fio_bs"-iodepth"$gs_fio_iodepth --rw=randread
+	echo "================================================== fio test "$gs_fio_testdisk" bs="$gs_fio_bs"...finish"
+chmod +x fiotestvdb.sh
+./fiotestvdb.sh
+
+### clean test process:
+### quit VM: press [ctrl + a] then press x
+kill -9 pid_of_vhost
+./scripts/setup.sh reset
+
